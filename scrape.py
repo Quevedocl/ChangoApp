@@ -35,6 +35,25 @@ CHAINS = {
     "santa-isabel": {"name": "Santa Isabel", "base_url": "https://www.santaisabel.cl",
                      "cnstrc": {"host": "https://ac.cnstrc.com", "key": "key_c73M3GMIWJ8AcNnd"}},
 }
+# Cadenas EXPERIMENTALES (no verificadas contra los sitios reales; mira `python scrape.py test <cadena>`):
+#   kind "vtex": API pública de VTEX (/api/catalog_system/pub/products/search), esquema documentado.
+#   kind "web":  lee el HTML de la búsqueda (JSON-LD, __NEXT_DATA__ o React Flight). Prueba cada plantilla
+#                de "search" y usa la primera que devuelva productos.
+CHAINS.update({
+    "alvi": {"name": "Alvi", "base_url": "https://www.alvi.cl", "kind": "vtex"},
+    "telemercados": {"name": "Telemercados", "base_url": "https://www.telemercados.cl", "kind": "vtex"},
+    "acuenta": {"name": "A Cuenta", "base_url": "https://www.acuenta.cl", "kind": "web",
+                "search": ["/search?name={q}&page={page}", "/search?name={q}"]},
+    "central-mayorista": {"name": "Central Mayorista", "base_url": "https://www.centralmayorista.cl", "kind": "web",
+                          "search": ["/search?name={q}&page={page}", "/search?q={q}&page={page}"]},
+    "tottus": {"name": "Tottus", "base_url": "https://www.tottus.cl", "kind": "web",
+               "search": ["/tottus-cl/buscar?Ntt={q}&page={page}", "/tottus-cl/search?Ntt={q}&page={page}",
+                          "/search?q={q}&page={page}"]},
+    "unimarc": {"name": "Unimarc", "base_url": "https://www.unimarc.cl", "kind": "web",
+                "search": ["/search?q={q}&page={page}", "/search?query={q}&page={page}"]},
+    "lider": {"name": "Líder", "base_url": "https://super.lider.cl", "kind": "web",
+              "search": ["/search?q={q}&page={page}"]},
+})
 # Cadenas investigadas pero NO activas (bloquean IPs de datacenter/GitHub Actions o no hay API verificada):
 #   unimarc (BFF propio, requiere IP residencial), lider (PerimeterX), tottus (antibot), acuenta (sin verificar).
 HEADERS = {
@@ -149,7 +168,7 @@ def fetch(url, tries=3, as_json=False):
     for i in range(tries):
         try:
             r = SESSION.get(url, timeout=40)
-            if r.status_code == 200:
+            if r.status_code in (200, 206):
                 _fails = 0
                 if as_json:
                     try:
@@ -518,6 +537,239 @@ def test_cnstrc(slug):
 
 
 # ---------------------------------------------------------------------------
+# Lectores genéricos (VTEX y páginas web) - EXPERIMENTALES
+# ---------------------------------------------------------------------------
+NAME_KEYS = ("name", "displayName", "productName", "title", "skuName")
+PRICE_KEYS = ("price", "currentPrice", "sellingPrice", "salePrice", "finalPrice", "offerPrice", "priceValue")
+LIST_KEYS = ("listPrice", "originalPrice", "regularPrice", "previousPrice", "priceWithoutDiscount", "normalPrice")
+URL_KEYS = ("url", "link", "canonicalUrl", "productUrl", "href", "slug")
+ID_KEYS = ("sku", "skuId", "productId", "itemId", "id", "partNumber")
+
+
+def _num(v):
+    """Número desde un valor, dict ({'value': ..}) o lista; None si no hay."""
+    if isinstance(v, bool):
+        return None
+    if isinstance(v, dict):
+        for k in ("value", "amount", "price", "current", "sale"):
+            n = _num(v.get(k))
+            if n:
+                return n
+        return None
+    if isinstance(v, list):
+        for x in v:
+            n = _num(x)
+            if n:
+                return n
+        return None
+    return to_num(v) if isinstance(v, (int, float, str)) else None
+
+
+def build_row(name, brand, ean, url, img, price, orig, in_stock, ext_id):
+    if not (name and price and price >= 50 and ext_id):
+        return None
+    price = round(price)
+    orig = round(orig) if orig and price < orig <= price * 3 else price
+    if isinstance(img, str) and img.startswith("http://"):
+        img = "https://" + img[7:]
+    size_text, unit_price, unit_label, size_key = size_info(name, price)
+    nk = name_key(brand, name, size_key)
+    return {
+        "external_id": str(ext_id), "name": str(name).strip(), "brand": brand or None, "ean": ean,
+        "external_url": url or None, "image_url": img, "current_price": price, "original_price": orig,
+        "is_offer": orig > price, "in_stock": bool(in_stock), "size_text": size_text,
+        "unit_price": unit_price, "unit_label": unit_label, "name_key": nk,
+        "match_key": ("ean:" + ean) if ean else nk,
+    }
+
+
+def parse_vtex(data, base):
+    """API pública de VTEX: lista de productos con items -> sellers -> commertialOffer."""
+    out = []
+    for p in data if isinstance(data, list) else []:
+        if not isinstance(p, dict):
+            continue
+        brand = p.get("brand") or None
+        url = p.get("link") or (f"{base}/{p['linkText']}/p" if p.get("linkText") else None)
+        for it in (p.get("items") or [])[:10]:
+            offers = [s.get("commertialOffer") or {} for s in it.get("sellers") or []]
+            offers = [o for o in offers if to_num(o.get("Price"))]
+            if not offers:
+                continue
+            avail = [o for o in offers if (o.get("AvailableQuantity") or 0) > 0]
+            o = (avail or offers)[0]
+            ean = re.sub(r"\D", "", str(it.get("ean") or ""))
+            ean = ean.lstrip("0") if 8 <= len(ean) <= 14 else None
+            img = pick_image({"images": [{"url": (i or {}).get("imageUrl")} for i in it.get("images") or []]})
+            row = build_row(it.get("nameComplete") or p.get("productName"), brand, ean, url, img,
+                            to_num(o.get("Price")), to_num(o.get("ListPrice")), bool(avail),
+                            it.get("itemId") or p.get("productId"))
+            if row:
+                out.append(row)
+    return out
+
+
+def html_json_blobs(text):
+    """Todos los JSON que una página trae incrustados: JSON-LD, __NEXT_DATA__ y React Flight."""
+    t = (text or "").lstrip()
+    if t[:1] in ("{", "["):
+        try:
+            yield json.loads(t)
+            return
+        except ValueError:
+            pass
+    for blob in LD.findall(text or ""):
+        try:
+            yield json.loads(blob)
+        except ValueError:
+            pass
+    for m in re.finditer(r'<script[^>]*id="__NEXT_DATA__"[^>]*>(.*?)</script>', text or "", re.S):
+        try:
+            yield json.loads(m.group(1))
+        except ValueError:
+            pass
+    chunks = []
+    for m in re.finditer(r'self\.__next_f\.push\(\[1,"(.*?)"\]\)', text or "", re.S):
+        try:
+            chunks.append(json.loads('"' + m.group(1) + '"'))
+        except ValueError:
+            pass
+    for line in "".join(chunks).split("\n"):
+        _, _, rest = line.partition(":")
+        if rest[:1] in ("[", "{"):
+            try:
+                yield json.loads(rest)
+            except ValueError:
+                pass
+
+
+def walk_products(node, out, depth=0):
+    """Busca, en cualquier JSON, objetos que parezcan un producto (nombre + precio + url/id)."""
+    if depth > 40:
+        return
+    if isinstance(node, list):
+        for x in node:
+            walk_products(x, out, depth + 1)
+    elif isinstance(node, dict):
+        name = next((node[k] for k in NAME_KEYS if isinstance(node.get(k), str) and len(node[k]) > 3), None)
+        price = next((p for p in (_num(node.get(k)) for k in PRICE_KEYS) if p and p >= 50), None)
+        plist = node.get("prices") if isinstance(node.get("prices"), list) else None
+        list_hi = None
+        if plist and not price:           # varias tarifas (normal / internet / evento): menor = vigente, mayor = normal
+            nums = [n for n in (_num(x) for x in plist) if n and n >= 50]
+            if nums:
+                price, list_hi = min(nums), max(nums)
+        if name and price:
+            url = next((node[k] for k in URL_KEYS if isinstance(node.get(k), str) and "/" in node[k]), None)
+            sku = next((str(node[k]) for k in ID_KEYS
+                        if node.get(k) not in (None, "") and not isinstance(node[k], (dict, list))), None)
+            if url or sku:
+                brand = node.get("brand") or node.get("brandName") or node.get("BrandName")
+                brand = brand.get("name") if isinstance(brand, dict) else brand
+                avail = node.get("available", node.get("isAvailable", node.get("inStock")))
+                out.append({"name": name, "brand": brand if isinstance(brand, str) else None,
+                            "ean": get_ean(node, {}), "url": url, "sku": sku or url, "img": pick_image(node),
+                            "price": price, "stock": avail is not False and node.get("outOfStock") is not True,
+                            "orig": next((p for p in [list_hi] + [_num(node.get(k)) for k in LIST_KEYS] if p and p > price), None)})
+                return
+        for v in node.values():
+            if isinstance(v, (dict, list)):
+                walk_products(v, out, depth + 1)
+
+
+def parse_web(text, base):
+    rows = parse(text) if "ld+json" in (text or "") else []
+    seen = {r["external_id"] for r in rows}
+    cands = []
+    for blob in html_json_blobs(text):
+        walk_products(blob, cands)
+    for c in cands:
+        url = c["url"]
+        if url and url.startswith("/"):
+            url = base + url
+        elif url and not url.startswith("http"):
+            url = None
+        row = build_row(c["name"], c["brand"], c["ean"], url, c["img"], c["price"], c["orig"], c["stock"], c["sku"])
+        if row and row["external_id"] not in seen:
+            seen.add(row["external_id"])
+            rows.append(row)
+    return rows
+
+
+def generic_page(slug, term, page):
+    cfg = CHAINS[slug]
+    base = cfg["base_url"]
+    if cfg["kind"] == "vtex":
+        url = (f"{base}/api/catalog_system/pub/products/search?ft={quote(term)}"
+               f"&_from={(page - 1) * 50}&_to={page * 50 - 1}")
+        return parse_vtex(fetch(url, as_json=True), base)
+    tpl = cfg.get("_tpl") or cfg["search"][0]
+    text = fetch(base + tpl.format(q=quote(term), page=page), tries=2)
+    return parse_web(text, base) if text else []
+
+
+def resolve_generic(slug):
+    """Elige la plantilla de búsqueda que realmente devuelve productos. False si ninguna."""
+    cfg = CHAINS[slug]
+    if cfg["kind"] == "vtex" or cfg.get("_tpl"):
+        return generic_page(slug, "leche", 1) != []
+    for tpl in cfg["search"]:
+        cfg["_tpl"] = tpl
+        if generic_page(slug, "leche", 1):
+            return True
+    cfg.pop("_tpl", None)
+    return False
+
+
+def test_generic(slug):
+    cfg = CHAINS[slug]
+    print(f"=== {cfg['name']} ({cfg['kind']}, EXPERIMENTAL) ===")
+    ok = resolve_generic(slug)
+    items = generic_page(slug, "leche", 1) if ok else []
+    if cfg.get("_tpl"):
+        print("plantilla que funciona:", cfg["_tpl"])
+    print(f"productos en la página: {len(items)}")
+    for i in items[:5]:
+        print("  ", i["name"], "|", i["brand"], "|", i["current_price"], "| lista:", i["original_price"],
+              "| tamaño:", i["size_text"], "| img:", "sí" if i["image_url"] else "NO")
+    if items:
+        print(f"con imagen: {sum(bool(i['image_url']) for i in items)}/{len(items)} · "
+              f"con EAN: {sum(bool(i['ean']) for i in items)}/{len(items)}")
+    print("RESULTADO:", "FUNCIONA" if items else "NO FUNCIONA (bloqueo anti-bot, otra ruta de búsqueda o formato distinto)")
+    return bool(items)
+
+
+def crawl_generic(slug):
+    cfg = CHAINS[slug]
+    if not resolve_generic(slug):
+        print(f"{cfg['name']}: la prueba inicial no devolvió productos; no se recorre nada.", flush=True)
+        return []
+    seen, terms = {}, all_terms()
+    try:
+        for n, (term, group) in enumerate(terms.items(), 1):
+            prev = None
+            for page in range(1, MAX_PAGES + 1):
+                items = generic_page(slug, term, page)
+                ids = [i["external_id"] for i in items]
+                if not items or ids == prev:
+                    break
+                for it in items:
+                    if it["external_id"] not in seen:
+                        it["category"] = group or "Otros"
+                        seen[it["external_id"]] = it
+                    elif seen[it["external_id"]]["category"] == "Otros" and group:
+                        seen[it["external_id"]]["category"] = group
+                prev = ids
+                time.sleep(DELAY + random.random() * 0.3)
+            if n % 20 == 0 or n == len(terms):
+                print(f"[{n}/{len(terms)}] {term}: {len(seen)} productos acumulados", flush=True)
+            time.sleep(DELAY)
+    except Blocked as e:
+        print(f"AVISO: {e}. Se guarda lo recolectado hasta aquí.", flush=True)
+    return list(seen.values())
+
+
+# ---------------------------------------------------------------------------
 # Recorrido
 # ---------------------------------------------------------------------------
 def all_terms():
@@ -571,6 +823,8 @@ def crawl(base):
 def test(slug):
     if CHAINS[slug].get("cnstrc"):
         return test_cnstrc(slug)
+    if CHAINS[slug].get("kind") in ("vtex", "web"):
+        return test_generic(slug)
     base = CHAINS[slug]["base_url"]
     print(f"=== {CHAINS[slug]['name']} ===")
     firsts, allitems = [], []
@@ -647,7 +901,13 @@ def save(slug, rows):
 
 
 def run(slug):
-    rows = crawl_cnstrc(slug) if CHAINS[slug].get("cnstrc") else crawl(CHAINS[slug]["base_url"])
+    cfg = CHAINS[slug]
+    if cfg.get("cnstrc"):
+        rows = crawl_cnstrc(slug)
+    elif cfg.get("kind") in ("vtex", "web"):
+        rows = crawl_generic(slug)
+    else:
+        rows = crawl(cfg["base_url"])
     if not rows:
         print(f"ERROR: 0 productos en {slug}. El sitio cambió o bloqueó el acceso.")
         return False

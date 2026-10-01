@@ -1,6 +1,6 @@
 # ChangoApp · Comparador de supermercados
 
-Compara precios de supermercados chilenos (hoy Jumbo y Santa Isabel), arma tu lista y ve dónde sale más barato.
+Compara precios de supermercados chilenos (Jumbo y Santa Isabel; más cadenas experimentales), arma tu lista y ve dónde sale más barato.
 
 ## Archivos
 - `index.html` → la web completa (conectada a Supabase). Ábrela con doble clic o súbela a Vercel/Netlify/GitHub Pages.
@@ -32,10 +32,15 @@ python scrape.py run jumbo
 |---|---|---|
 | Jumbo | activa | buscador interno (Constructor.io), todas las categorías |
 | Santa Isabel | activa | igual que Jumbo |
-| Unimarc | no activa | tiene API propia, pero bloquea IPs de datacenter (GitHub Actions): requiere correr desde un computador con IP residencial |
-| Líder | no activa | protegida por antibot (PerimeterX) |
-| Tottus | no activa | antibot; su buscador no devuelve su catálogo propio |
-| A Cuenta | sin investigar | — |
+| Alvi, Telemercados | **experimental** | API pública de VTEX (esquema documentado). Alvi es mayorista: algunos precios dependen del volumen |
+| A Cuenta, Central Mayorista | **experimental** | HTML de la búsqueda (Next.js / React Flight) |
+| Tottus | **experimental** | HTML de la búsqueda (`__NEXT_DATA__`); puede tener antibot |
+| Unimarc | **experimental** | puede requerir IP residencial; probablemente solo funcione desde tu computador |
+| Líder | **experimental** | protegida por antibot (PerimeterX); lo más probable es que falle |
+
+"Experimental" = escrita sin poder probarla contra el sitio real. Corre `python scrape.py test <cadena>`
+(o el workflow "Probar supermercados") y mira la línea `RESULTADO`. Si una cadena da `NO FUNCIONA`, no guarda
+nada ni daña los datos de las demás. Para investigarla usa el workflow "Descubrir APIs".
 
 Los precios que se guardan son los del catálogo nacional; pueden variar por sucursal.
 
@@ -65,5 +70,4 @@ La clave `anon` en `index.html` es pública por diseño (RLS solo permite lectur
 **nunca** va en `index.html` ni en el repositorio: solo en secrets o en tu `.env` local.
 
 ## Pendiente conocido
-Ver la tabla de súper: Unimarc, Líder, Tottus y A Cuenta no están activos. Para investigarlos usa el workflow
-"Descubrir APIs" o `explore.py`.
+Las cadenas experimentales hay que verificarlas una por una (ver tabla).

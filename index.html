@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#0F3D2E">
 <title>ChangoApp · Compara supermercados y ahorra</title>
-<meta name="description" content="Compara precios de Jumbo y Santa Isabel, arma tu lista y descubre dónde sale más barato.">
+<meta name="description" content="Compara precios de supermercados chilenos, arma tu lista y descubre dónde sale más barato.">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='28' fill='%230F3D2E'/%3E%3Ctext x='50' y='68' font-size='56' text-anchor='middle'%3E🛒%3C/text%3E%3C/svg%3E">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@600;800&family=DM+Sans:wght@400;500;700&display=swap">
 <style>
@@ -136,7 +136,7 @@ h3{font-size:1.02rem;font-weight:600;line-height:1.22;display:-webkit-box;-webki
 </div></header>
 <section class="hero"><div class="wrap">
   <h1>Llena el chango donde <em>sale más barato</em></h1>
-  <p class="sub">Compara Jumbo y Santa Isabel, mira el precio por kilo o litro y arma tu lista para saber dónde comprar.</p>
+  <p class="sub">Compara los supermercados de Chile, mira el precio por kilo o litro y arma tu lista para saber dónde comprar.</p>
 </div></section>
 <div class="facets"><div class="panel">
   <div class="row" id="cats" role="group" aria-label="Categorías"></div>
@@ -168,7 +168,7 @@ const emo=c=>EMO[c]||(KW.find(([r])=>r.test(c||""))||[])[1]||"🛒";
 /* ====== UTILIDADES ====== */
 const $=s=>document.querySelector(s),fmt=n=>"$"+new Intl.NumberFormat("es-CL").format(Math.round(n));
 const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
-const COL={"Líder":"#2F6BFF","Jumbo":"#F28C0F","Santa Isabel":"#E5322D","Unimarc":"#12A150","Tottus":"#00A651"};
+const COL={"Líder":"#2F6BFF","Jumbo":"#F28C0F","Santa Isabel":"#E5322D","Unimarc":"#12A150","Tottus":"#00A651","A Cuenta":"#F5B700","Alvi":"#0072CE","Central Mayorista":"#D4145A","Telemercados":"#7B3FA0"};
 const hash=s=>[...String(s)].reduce((a,c)=>(a*31+c.charCodeAt(0))>>>0,7);
 const color=s=>COL[s]||`hsl(${hash(s)%360} 65% 45%)`;
 const safeUrl=u=>/^https?:\/\//i.test(u||"")?u:"";
@@ -240,7 +240,7 @@ function card(p){
 function render(){
   renderFacets();
   $("#of").classList.toggle("on",st.offers);$("#of").setAttribute("aria-pressed",st.offers);
-  $("#grid").innerHTML=err?`<p class="msg"><b>Ups</b>${esc(err)}</p>`:items.length?items.map(card).join(""):busy?Array(8).fill('<div class="sk"></div>').join(""):`<p class="msg"><b>Sin resultados</b>No encontramos productos${st.q?` para "${esc(st.q)}"`:""}. Prueba con otra palabra o quita los filtros.</p>`;
+  $("#grid").innerHTML=err?`<p class="msg"><b>Ups</b>${esc(err)}</p>`:items.length?items.map(card).join(""):busy?Array(8).fill('<div class="sk"></div>').join(""):(!st.q&&!st.cat&&!st.offers?`<p class="msg"><b>Aún no hay precios cargados</b>La base está vacía. Ejecuta el workflow "Actualizar precios" en GitHub (modo run) y vuelve a abrir esta página.</p>`:`<p class="msg"><b>Sin resultados</b>No encontramos productos${st.q?` para "${esc(st.q)}"`:""}. Prueba con otra palabra o quita los filtros.</p>`);
   $("#count").textContent=err||busy&&!items.length?"":total.toLocaleString("es-CL")+(total===1?" producto":" productos");
   const more=$("#more");more.hidden=!(items.length<total);more.disabled=busy;more.textContent=busy?"Cargando…":"Ver más productos";
   renderCart();

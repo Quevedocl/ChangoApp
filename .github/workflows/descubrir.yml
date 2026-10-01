@@ -1,0 +1,23 @@
+name: Descubrir APIs
+on:
+  workflow_dispatch:
+    inputs:
+      sitio:
+        description: "Supermercado a analizar"
+        type: choice
+        default: jumbo
+        options: [jumbo, santa-isabel, tottus, acuenta, unimarc, lider]
+jobs:
+  descubrir:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - run: pip install playwright
+      - run: playwright install --with-deps chromium
+      - run: python discover.py "$SITIO"
+        env:
+          SITIO: ${{ github.event.inputs.sitio }}
+ 

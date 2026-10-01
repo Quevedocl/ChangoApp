@@ -514,6 +514,13 @@ def crawl_cnstrc(slug):
     return list(seen.values())
 
 
+def cnstrc_alive(slug):
+    """True si Constructor.io devuelve productos con la clave pública configurada."""
+    cfg = CHAINS[slug]
+    resp = fetch(cnstrc_url(cfg, "search/leche", 1, 20), as_json=True)
+    return bool(parse_cnstrc(resp, cfg["base_url"]))
+
+
 def test_cnstrc(slug):
     cfg = CHAINS[slug]
     print(f"=== {cfg['name']} (Constructor.io) ===")
@@ -822,7 +829,9 @@ def crawl(base):
 
 def test(slug):
     if CHAINS[slug].get("cnstrc"):
-        return test_cnstrc(slug)
+        if test_cnstrc(slug):
+            return True
+        print("\nConstructor.io no funcionó; pruebo la lectura HTML (JSON-LD), que es el plan B...")
     if CHAINS[slug].get("kind") in ("vtex", "web"):
         return test_generic(slug)
     base = CHAINS[slug]["base_url"]
@@ -839,7 +848,8 @@ def test(slug):
               "| tamaño:", i["size_text"], "| $/", i["unit_label"], i["unit_price"], "| oferta:", i["is_offer"])
     if allitems:
         n = len(allitems)
-        print(f"con EAN: {sum(bool(i['ean']) for i in allitems)}/{n} · con tamaño: "
+        print(f"con imagen: {sum(bool(i['image_url']) for i in allitems)}/{n} · "
+              f"con EAN: {sum(bool(i['ean']) for i in allitems)}/{n} · con tamaño: "
               f"{sum(bool(i['size_text']) for i in allitems)}/{n} · en oferta: {sum(i['is_offer'] for i in allitems)}/{n}")
     if firsts[0] and firsts[0] == firsts[1]:
         print("AVISO: la página 2 repite la 1; la paginación no funciona con ?page=")
@@ -903,7 +913,11 @@ def save(slug, rows):
 def run(slug):
     cfg = CHAINS[slug]
     if cfg.get("cnstrc"):
-        rows = crawl_cnstrc(slug)
+        if cnstrc_alive(slug):
+            rows = crawl_cnstrc(slug)
+        else:
+            print(f"{cfg['name']}: Constructor.io no responde; uso la búsqueda HTML (JSON-LD).", flush=True)
+            rows = crawl(cfg["base_url"])
     elif cfg.get("kind") in ("vtex", "web"):
         rows = crawl_generic(slug)
     else:

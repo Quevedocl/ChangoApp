@@ -3,21 +3,56 @@ on:
   schedule:
     - cron: "0 6 * * *"
   workflow_dispatch:
+    inputs:
+      modo:
+        description: "test = prueba rápida sin guardar, run = carga completa"
+        type: choice
+        default: run
+        options: [test, run]
+      cadenas:
+        description: "Cadenas separadas por coma (vacío = todas). Ej: jumbo,santa-isabel"
+        type: string
+        default: ""
 jobs:
   scrape:
     runs-on: ubuntu-latest
-    timeout-minutes: 300
-    continue-on-error: true   # si una cadena falla, las demás siguen
+    timeout-minutes: 340
+    # Las cadenas experimentales (exp: true) pueden fallar sin tumbar el resto
+    continue-on-error: ${{ matrix.exp }}
     strategy:
       fail-fast: false
       matrix:
-        chain: [jumbo, santa-isabel, unimarc, lider, tottus, acuenta]
+        include:
+          - { chain: jumbo, exp: false }
+          - { chain: santa-isabel, exp: false }
+          - { chain: alvi, exp: true }
+          - { chain: telemercados, exp: true }
+          - { chain: acuenta, exp: true }
+          - { chain: central-mayorista, exp: true }
+          - { chain: tottus, exp: true }
+          - { chain: unimarc, exp: true }
+          - { chain: lider, exp: true }
+    env:
+      CHAIN: ${{ matrix.chain }}
+      FILTRO: ${{ github.event.inputs.cadenas }}
     steps:
       - uses: actions/checkout@v4
+        if: ${{ env.FILTRO == '' || contains(format(',{0},', env.FILTRO), format(',{0},', matrix.chain)) }}
       - uses: actions/setup-python@v5
+        if: ${{ env.FILTRO == '' || contains(format(',{0},', env.FILTRO), format(',{0},', matrix.chain)) }}
         with: { python-version: "3.12" }
-      - run: pip install -r requirements.txt
-      - run: python scrape.py run ${{ matrix.chain }}
+      - name: Instalar dependencias
+        if: ${{ env.FILTRO == '' || contains(format(',{0},', env.FILTRO), format(',{0},', matrix.chain)) }}
+        run: pip install -r requirements.txt
+      - name: Ejecutar scraper
+        if: ${{ env.FILTRO == '' || contains(format(',{0},', env.FILTRO), format(',{0},', matrix.chain)) }}
+        run: |
+          set -o pipefail
+          python -u scrape.py "$MODO" "$CHAIN" 2>&1 | tee scrape.log
         env:
+          MODO: ${{ github.event.inputs.modo || 'run' }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+      - name: Resumen del log
+        if: ${{ always() && (env.FILTRO == '' || contains(format(',{0},', env.FILTRO), format(',{0},', matrix.chain))) }}
+        run: python .github/resumen.py

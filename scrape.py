@@ -1,21 +1,27 @@
 """Scraper de precios de supermercados -> Supabase (motor VTEX).
-
+ 
 Uso:
-  python scrape.py probe jumbo   # comprueba si la web expone el catálogo VTEX
+  python scrape.py probe all     # prueba todas las cadenas y dice cuáles funcionan
+  python scrape.py probe jumbo   # comprueba una sola cadena
   python scrape.py run jumbo     # descarga TODO el catálogo y actualiza precios
-
+ 
 Variables de entorno: SUPABASE_URL, SUPABASE_SERVICE_KEY
 """
 import os
 import sys
 import time
 from datetime import datetime, timezone
-
+ 
 import requests
-
+ 
 CHAINS = {
     "jumbo": {"name": "Jumbo", "base_url": "https://www.jumbo.cl"},
     "santa-isabel": {"name": "Santa Isabel", "base_url": "https://www.santaisabel.cl"},
+    # Las siguientes son cadenas por confirmar: usa "probe" para saber si funcionan con este método
+    "unimarc": {"name": "Unimarc", "base_url": "https://www.unimarc.cl"},
+    "lider": {"name": "Líder", "base_url": "https://www.lider.cl"},
+    "tottus": {"name": "Tottus", "base_url": "https://www.tottus.cl"},
+    "acuenta": {"name": "A Cuenta", "base_url": "https://www.acuenta.cl"},
 }
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (compatible; ComparadorBot/1.0; +contacto@tudominio.cl)",
@@ -24,8 +30,8 @@ HEADERS = {
 PAGE = 50      # máximo de VTEX por consulta
 MAX_OFFSET = 2500  # VTEX no entrega más allá de ~2500 por búsqueda
 DELAY = 0.4    # segundos entre consultas (sé amable con el sitio)
-
-
+ 
+ 
 def get(url, params=None, tries=4):
     for i in range(tries):
         try:
@@ -41,13 +47,13 @@ def get(url, params=None, tries=4):
                 raise
             time.sleep(2 ** (i + 1))
     return []
-
-
+ 
+ 
 def leaf_categories(base):
     """Categorías hoja: cada una queda bajo el límite de 2500 productos."""
     tree = get(f"{base}/api/catalog_system/pub/category/tree/4")
     out = []
-
+ 
     def walk(nodes, path):
         for n in nodes:
             p = path + [n["name"]]
@@ -55,11 +61,11 @@ def leaf_categories(base):
                 walk(n["children"], p)
             else:
                 out.append((n["id"], " > ".join(p)))
-
+ 
     walk(tree, [])
     return out
-
-
+ 
+ 
 def parse(item, base, category):
     skus = item.get("items") or [{}]
     sku = skus[0]
@@ -86,8 +92,8 @@ def parse(item, base, category):
         "is_offer": bool(lst and lst > price),
         "in_stock": (offer.get("AvailableQuantity") or 0) > 0,
     }
-
-
+ 
+ 
 def crawl(base):
     seen = {}
     cats = leaf_categories(base)
@@ -109,11 +115,11 @@ def crawl(base):
         print(f"[{n}/{len(cats)}] {path}: {len(seen)} productos acumulados", flush=True)
         time.sleep(DELAY)
     return list(seen.values())
-
-
+ 
+ 
 def save(slug, rows):
     from supabase import create_client
-
+ 
     sb = create_client(os.environ["SUPABASE_URL"], os.environ["SUPABASE_SERVICE_KEY"])
     cfg = CHAINS[slug]
     sid = (
@@ -122,7 +128,7 @@ def save(slug, rows):
         .execute()
         .data[0]["id"]
     )
-
+ 
     # precios actuales, para registrar historial solo cuando cambian
     old, start = {}, 0
     while True:
@@ -138,7 +144,7 @@ def save(slug, rows):
         if len(chunk) < 1000:
             break
         start += 1000
-
+ 
     now = datetime.now(timezone.utc).isoformat()
     hist = []
     for i in range(0, len(rows), 500):
@@ -151,7 +157,7 @@ def save(slug, rows):
         ]
     for i in range(0, len(hist), 1000):
         sb.table("price_history").insert(hist[i : i + 1000]).execute()
-
+ 
     # productos que ya no aparecen en la web -> sin stock
     current = {r["external_id"] for r in rows}
     gone = [e for e in old if e not in current]
@@ -163,13 +169,14 @@ def save(slug, rows):
             .in_("external_id", gone[i : i + 200])
             .execute()
         )
-
+ 
     sb.rpc("link_by_ean").execute()
     print(f"{cfg['name']}: {len(rows)} productos, {len(hist)} cambios de precio, {len(gone)} sin stock")
-
-
+ 
+ 
 def probe(slug):
     base = CHAINS[slug]["base_url"]
+    print(f"\n=== {CHAINS[slug]['name']} ({base}) ===")
     try:
         cats = leaf_categories(base)
         print(f"OK: {len(cats)} categorías hoja. Ejemplo: {cats[0]}")
@@ -181,15 +188,20 @@ def probe(slug):
         if data:
             print(parse(data[0], base, cats[0][1]))
     except Exception as e:
-        print("FALLÓ:", e)
-        print("Esta web probablemente no usa VTEX o bloquea el acceso. Hay que usar otro método.")
-
-
+        print("RESULTADO: NO FUNCIONA con este método ->", repr(e)[:200])
+        print("Probablemente no usa VTEX o bloquea el acceso. Hay que usar otro método.")
+        return False
+    print("RESULTADO: FUNCIONA")
+    return True
+ 
+ 
 if __name__ == "__main__":
-    if len(sys.argv) != 3 or sys.argv[2] not in CHAINS or sys.argv[1] not in ("probe", "run"):
+    ok_cmd = len(sys.argv) == 3 and sys.argv[1] in ("probe", "run")
+    if not ok_cmd or (sys.argv[2] not in CHAINS and not (sys.argv[1] == "probe" and sys.argv[2] == "all")):
         sys.exit(__doc__)
     cmd, chain = sys.argv[1], sys.argv[2]
     if cmd == "probe":
-        probe(chain)
+        for c in (CHAINS if chain == "all" else [chain]):
+            probe(c)
     else:
         save(chain, crawl(CHAINS[chain]["base_url"]))

@@ -1,7 +1,7 @@
 """Scraper de precios de ChangoApp (Jumbo, Santa Isabel) -> Supabase.
 
-Lee los productos que cada web incluye en el HTML de sus páginas de búsqueda (JSON-LD),
-sin navegador. Recorre cientos de términos (categorías y marcas) para llenar el catálogo.
+Jumbo y Santa Isabel: usa el buscador interno (Constructor.io) y recorre TODAS las categorías
+para traer el catálogo completo, más términos y marcas como red de seguridad. Sin navegador.
 
 Uso:
   python scrape.py test jumbo        # prueba rápida: no guarda nada, muestra qué encontró
@@ -25,10 +25,17 @@ from urllib.parse import quote
 
 import requests
 
+# Jumbo y Santa Isabel (Cencosud) buscan con Constructor.io. Las "key" son las claves PÚBLICAS que
+# el propio frontend de cada sitio usa en el navegador (no dan acceso a cuentas). Verificadas en jul-2026
+# por terceros; si dejan de funcionar, `python scrape.py test <cadena>` lo dice.
 CHAINS = {
-    "jumbo": {"name": "Jumbo", "base_url": "https://www.jumbo.cl"},
-    "santa-isabel": {"name": "Santa Isabel", "base_url": "https://www.santaisabel.cl"},
+    "jumbo": {"name": "Jumbo", "base_url": "https://www.jumbo.cl",
+              "cnstrc": {"host": "https://pwcdauseo-zone.cnstrc.com", "key": "key_JopvNXKS61kwGkBe"}},
+    "santa-isabel": {"name": "Santa Isabel", "base_url": "https://www.santaisabel.cl",
+                     "cnstrc": {"host": "https://ac.cnstrc.com", "key": "key_c73M3GMIWJ8AcNnd"}},
 }
+# Cadenas investigadas pero NO activas (bloquean IPs de datacenter/GitHub Actions o no hay API verificada):
+#   unimarc (BFF propio, requiere IP residencial), lider (PerimeterX), tottus (antibot), acuenta (sin verificar).
 HEADERS = {
     "User-Agent": ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
                    "(KHTML, like Gecko) Chrome/124.0 Safari/537.36"),
@@ -136,13 +143,18 @@ class Blocked(Exception):
     """Demasiados fallos seguidos: el sitio nos está bloqueando."""
 
 
-def fetch(url, tries=3):
+def fetch(url, tries=3, as_json=False):
     global _fails
     for i in range(tries):
         try:
             r = SESSION.get(url, timeout=40)
             if r.status_code == 200:
                 _fails = 0
+                if as_json:
+                    try:
+                        return r.json()
+                    except ValueError:
+                        return None
                 return r.text
             if r.status_code in (403, 429, 503):
                 time.sleep(3 * (i + 1) + random.random())
@@ -330,6 +342,146 @@ def parse(html):
 
 
 # ---------------------------------------------------------------------------
+# Constructor.io (Jumbo, Santa Isabel)
+# ---------------------------------------------------------------------------
+CNSTRC_PER_PAGE = 100
+CNSTRC_MAX_PAGES = int(os.environ.get("CNSTRC_MAX_PAGES", 80))   # 80 x 100 = 8.000 por categoría
+
+
+def cnstrc_url(cfg, path, page=1, per=CNSTRC_PER_PAGE):
+    c = cfg["cnstrc"]
+    return (f"{c['host']}/{path}?key={c['key']}&i=00000000-0000-4000-8000-000000000001&s=1"
+            f"&page={page}&num_results_per_page={per}")
+
+
+def parse_cnstrc(resp, base_url):
+    """Convierte la respuesta de Constructor.io (search/browse) en filas de store_products."""
+    out = []
+    for r in ((resp or {}).get("response") or {}).get("results") or []:
+        d = r.get("data") or {}
+        name = r.get("value") or d.get("ProductName")
+        price = to_num(d.get("sellingPrice"))
+        sku = d.get("id") or d.get("ProductId")
+        if not (name and price and sku):
+            continue
+        orig = max((to_num(d.get(k)) or 0) for k in ("listPrice", "price", "originalPrice"))
+        if not (price < orig <= price * 3):
+            orig = price
+        url = d.get("url") or ""
+        if url.startswith("/"):
+            url = base_url + url
+        brand = d.get("BrandName") or None
+        price, orig = round(price), round(orig)
+        # tamaño: primero el nombre; si no, la unidad de medida que informa la tienda
+        size_text, unit_price, unit_label, size_key = size_info(name, price)
+        nk = name_key(brand, name, size_key)
+        ean = get_ean(d, {})
+        stock = str(d.get("stockLevel") or "").lower()
+        out.append({
+            "external_id": str(sku),
+            "name": name,
+            "brand": brand,
+            "ean": ean,
+            "external_url": url or None,
+            "image_url": d.get("image_url") or None,
+            "current_price": price,
+            "original_price": orig,
+            "is_offer": orig > price,
+            "in_stock": not (d.get("outOfStock") is True or "out" in stock),
+            "size_text": size_text,
+            "unit_price": unit_price,
+            "unit_label": unit_label,
+            "name_key": nk,
+            "match_key": ("ean:" + ean) if ean else nk,
+        })
+    return out
+
+
+def leaf_groups(groups, top=None):
+    """Aplana el árbol de categorías: devuelve [(group_id, nombre_categoria_principal)] de las hojas."""
+    out = []
+    for g in groups or []:
+        gid, name = g.get("group_id"), g.get("display_name")
+        t = top or name
+        kids = g.get("children") or []
+        if kids:
+            out += leaf_groups(kids, t)
+        elif gid:
+            out.append((str(gid), t))
+    return out
+
+
+def crawl_cnstrc(slug):
+    cfg = CHAINS[slug]
+    base = cfg["base_url"]
+    seen = {}
+
+    def add(items, cat):
+        for it in items:
+            cur = seen.get(it["external_id"])
+            if cur is None:
+                it["category"] = cat
+                seen[it["external_id"]] = it
+            elif not cur.get("category") and cat:
+                cur["category"] = cat
+
+    try:
+        # 1) árbol de categorías (viene en cualquier respuesta de búsqueda)
+        first = fetch(cnstrc_url(cfg, "search/leche", 1, 1), as_json=True)
+        groups = ((first or {}).get("response") or {}).get("groups") or []
+        leaves = leaf_groups(groups)
+        print(f"{cfg['name']}: {len(leaves)} categorías para recorrer", flush=True)
+        # 2) cada categoría completa, paginada
+        for n, (gid, top) in enumerate(leaves, 1):
+            for page in range(1, CNSTRC_MAX_PAGES + 1):
+                resp = fetch(cnstrc_url(cfg, f"browse/group_id/{gid}", page), as_json=True)
+                items = parse_cnstrc(resp, base)
+                if not items:
+                    break
+                add(items, top)
+                if len(items) < CNSTRC_PER_PAGE * 0.5 and page > 1:
+                    break
+                time.sleep(0.35 + random.random() * 0.2)
+            if n % 10 == 0 or n == len(leaves):
+                print(f"[{n}/{len(leaves)}] {len(seen)} productos acumulados", flush=True)
+        # 3) red de seguridad: términos y marcas (por si alguna categoría quedó fuera del árbol)
+        if os.environ.get("EXTRA_TERMS", "1") == "1":
+            for n, (term, group) in enumerate(all_terms().items(), 1):
+                for page in range(1, 4):
+                    resp = fetch(cnstrc_url(cfg, f"search/{quote(term)}", page), as_json=True)
+                    items = parse_cnstrc(resp, base)
+                    if not items:
+                        break
+                    add(items, group)
+                    if len(items) < CNSTRC_PER_PAGE * 0.5:
+                        break
+                    time.sleep(0.35)
+                if n % 50 == 0:
+                    print(f"  términos {n}: {len(seen)} productos acumulados", flush=True)
+    except Blocked as e:
+        print(f"AVISO: {e}. Se guarda lo recolectado hasta aquí.", flush=True)
+    for it in seen.values():
+        it["category"] = it.get("category") or "Otros"
+    return list(seen.values())
+
+
+def test_cnstrc(slug):
+    cfg = CHAINS[slug]
+    print(f"=== {cfg['name']} (Constructor.io) ===")
+    resp = fetch(cnstrc_url(cfg, "search/leche", 1, 20), as_json=True)
+    items = parse_cnstrc(resp, cfg["base_url"])
+    groups = ((resp or {}).get("response") or {}).get("groups") or []
+    total = ((resp or {}).get("response") or {}).get("total_num_results")
+    print(f"productos en la página: {len(items)} · total para 'leche': {total} · categorías hoja: {len(leaf_groups(groups))}")
+    for i in items[:5]:
+        print("  ", i["name"], "|", i["brand"], "|", i["current_price"], "| lista:", i["original_price"],
+              "| tamaño:", i["size_text"], "| $/", i["unit_label"], i["unit_price"], "| stock:", i["in_stock"])
+    ok = bool(items)
+    print("RESULTADO:", "FUNCIONA" if ok else "NO FUNCIONA (la clave pública pudo cambiar o el sitio bloquea esta IP)")
+    return ok
+
+
+# ---------------------------------------------------------------------------
 # Recorrido
 # ---------------------------------------------------------------------------
 def all_terms():
@@ -381,6 +533,8 @@ def crawl(base):
 
 
 def test(slug):
+    if CHAINS[slug].get("cnstrc"):
+        return test_cnstrc(slug)
     base = CHAINS[slug]["base_url"]
     print(f"=== {CHAINS[slug]['name']} ===")
     firsts, allitems = [], []
@@ -457,7 +611,7 @@ def save(slug, rows):
 
 
 def run(slug):
-    rows = crawl(CHAINS[slug]["base_url"])
+    rows = crawl_cnstrc(slug) if CHAINS[slug].get("cnstrc") else crawl(CHAINS[slug]["base_url"])
     if not rows:
         print(f"ERROR: 0 productos en {slug}. El sitio cambió o bloqueó el acceso.")
         return False

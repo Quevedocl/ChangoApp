@@ -6,6 +6,7 @@ para traer el catálogo completo, más términos y marcas como red de seguridad.
 Uso:
   python scrape.py test jumbo        # prueba rápida: no guarda nada, muestra qué encontró
   python scrape.py test all          # prueba todos los súper
+  python scrape.py probe all         # igual que test all (lo usa el workflow "Probar supermercados")
   python scrape.py run jumbo         # recorre el catálogo y guarda en Supabase
   python scrape.py run all
 
@@ -263,6 +264,35 @@ def to_num(v):
         return None
 
 
+def pick_image(d, r=None):
+    """Busca la imagen del producto en las claves que usan las tiendas (string, lista o dict)."""
+    def norm(v):
+        if isinstance(v, (list, tuple)):
+            for x in v:
+                n = norm(x)
+                if n:
+                    return n
+            return None
+        if isinstance(v, dict):
+            for k in ("url", "src", "large", "medium", "original", "image_url"):
+                n = norm(v.get(k))
+                if n:
+                    return n
+            return None
+        if isinstance(v, str):
+            v = v.strip()
+            if v.startswith("//"):
+                v = "https:" + v
+            return v if v.startswith("http") else None
+        return None
+    for src in (d or {}, r or {}):
+        for k in ("image_url", "imageUrl", "imageURL", "image", "images", "thumbnail", "img", "picture"):
+            n = norm(src.get(k))
+            if n:
+                return n
+    return None
+
+
 def get_ean(it, offers):
     for src in (it, offers):
         for k in ("gtin13", "gtin", "gtin12", "gtin14", "gtin8"):
@@ -383,7 +413,7 @@ def parse_cnstrc(resp, base_url):
             "brand": brand,
             "ean": ean,
             "external_url": url or None,
-            "image_url": d.get("image_url") or None,
+            "image_url": pick_image(d, r),
             "current_price": price,
             "original_price": orig,
             "is_offer": orig > price,
@@ -476,6 +506,12 @@ def test_cnstrc(slug):
     for i in items[:5]:
         print("  ", i["name"], "|", i["brand"], "|", i["current_price"], "| lista:", i["original_price"],
               "| tamaño:", i["size_text"], "| $/", i["unit_label"], i["unit_price"], "| stock:", i["in_stock"])
+    if items:
+        con_img = sum(bool(i["image_url"]) for i in items)
+        print(f"con imagen: {con_img}/{len(items)} · ejemplo: {next((i['image_url'] for i in items if i['image_url']), '(ninguna)')}")
+        if not con_img and resp:
+            ejemplo = ((resp.get("response") or {}).get("results") or [{}])[0]
+            print("AVISO: ningún producto trae imagen. Claves que sí llegan:", sorted((ejemplo.get("data") or {}).keys()))
     ok = bool(items)
     print("RESULTADO:", "FUNCIONA" if ok else "NO FUNCIONA (la clave pública pudo cambiar o el sitio bloquea esta IP)")
     return ok
@@ -619,9 +655,9 @@ def run(slug):
 
 
 if __name__ == "__main__":
-    if len(sys.argv) != 3 or sys.argv[1] not in ("test", "run") or (sys.argv[2] not in CHAINS and sys.argv[2] != "all"):
+    if len(sys.argv) != 3 or sys.argv[1] not in ("test", "run", "probe") or (sys.argv[2] not in CHAINS and sys.argv[2] != "all"):
         sys.exit(__doc__)
     cmd = sys.argv[1]
     chains = list(CHAINS) if sys.argv[2] == "all" else [sys.argv[2]]
-    ok = all([(test if cmd == "test" else run)(c) for c in chains])
+    ok = all([(run if cmd == "run" else test)(c) for c in chains])
     sys.exit(0 if ok else 1)

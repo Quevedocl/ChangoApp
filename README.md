@@ -4,7 +4,8 @@ Compara precios de supermercados chilenos (hoy Jumbo y Santa Isabel), arma tu li
 
 ## Archivos
 - `index.html` → la web completa (conectada a Supabase). Ábrela con doble clic o súbela a Vercel/Netlify/GitHub Pages.
-- `migracion_001.sql` → **ejecútala una vez** en Supabase (SQL Editor). Es idempotente.
+- `migracion_001.sql` y luego `migracion_002.sql` → **ejecútalas en ese orden** en Supabase (SQL Editor). Son idempotentes. La 002 arregla las imágenes.
+- `limpiar_demo.sql` → borra los productos de ejemplo (ejecútalo después de la primera carga real).
 - `schema.sql` → esquema completo, solo para una base nueva.
 - `scrape.py` → scraper (buscador interno de cada súper, sin navegador) y carga Supabase.
 - `.github/workflows/scrape.yml` → actualización nocturna (06:00 UTC) o manual con modo `test`/`run`.
@@ -12,10 +13,11 @@ Compara precios de supermercados chilenos (hoy Jumbo y Santa Isabel), arma tu li
 - `explore.py` / `discover.py` + sus workflows → herramientas para investigar sitios nuevos.
 
 ## Puesta en marcha
-1. En Supabase > SQL Editor, pega y ejecuta `migracion_001.sql`.
+1. En Supabase > SQL Editor, pega y ejecuta `migracion_001.sql` y después `migracion_002.sql`.
 2. En GitHub > Settings > Secrets and variables > Actions crea `SUPABASE_URL` y `SUPABASE_SERVICE_KEY`.
 3. Actions > "Probar supermercados" para verificar que los sitios responden.
-4. Actions > "Actualizar precios" > Run workflow con modo `run` (la primera carga demora; luego es nocturna).
+4. Actions > "Actualizar precios" > Run workflow con modo `run` (la primera carga demora; luego es nocturna). **Mientras no termine esa carga solo verás los productos demo.**
+5. Cuando termine con éxito, ejecuta `limpiar_demo.sql` en Supabase.
 
 En tu computador:
 ```

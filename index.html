@@ -232,7 +232,7 @@ function card(p){
     return `<div class="pr${w?" win":""}"><i style="background:${color(r.s)}"></i><span class="s">${nm}${r.u?`<small>${fmt(r.u)} / ${esc(r.ul)}</small>`:""}</span><span class="pp">${r.offer?`<s>${fmt(r.orig)}</s>`:""}<b>${fmt(r.price)}</b></span></div>`}).join("");
   const at=rows.map(r=>r.at).filter(Boolean).sort().pop();
   const em=emo(p.cat);
-  const ph=p.img?`<img src="${esc(p.img)}" alt="" loading="lazy" onerror="this.replaceWith(document.createTextNode('${em}'))">`:em;
+  const ph=p.img?`<img src="${esc(p.img)}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.replaceWith(document.createTextNode('${em}'))">`:em;
   const n=cart[p.id]||0,off=rows.some(r=>r.offer);
   const ctl=n?`<div class="step"><button data-m="${esc(p.id)}" aria-label="Quitar uno">−</button><b>${n} en tu lista</b><button data-p="${esc(p.id)}" aria-label="Agregar uno">+</button></div>`:`<button class="add" data-p="${esc(p.id)}">Agregar a mi lista</button>`;
   return `<article class="card"><div class="ph" style="--h:${hash(p.name)%360}">${ph}${off?`<span class="tag">Oferta</span>`:""}${cmp?`<span class="tag g">−${Math.round((hi-lo)/hi*100)}%</span>`:""}</div><div class="body"><div>${p.brand?`<p class="br">${esc(p.brand)}</p>`:""}<h3>${esc(p.name)}</h3>${p.size?`<span class="sz">${esc(p.size)}</span>`:""}</div><div class="prs">${html}</div>${cmp?`<p class="save">Ahorras <b>${fmt(hi-lo)}</b> en ${esc(rows[0].s)}${at?` · ${new Date(at).toLocaleDateString("es-CL")}`:""}</p>`:at?`<p class="save">Precio al ${new Date(at).toLocaleDateString("es-CL")}</p>`:""}${ctl}</div></article>`;
@@ -262,7 +262,7 @@ function renderCart(){
       stores.forEach(s=>{const r=p.rows.find(x=>x.s===s);if(r)tot[s]+=r.price*n;else miss[s]++});
       best=[...p.rows].sort((a,b)=>a.price-b.price)[0];split+=best.price*n;bySplit[best.s]=(bySplit[best.s]||0)+1;
     }
-    const th=p.img?`<img src="${esc(p.img)}" alt="" onerror="this.outerHTML='<span class=th>🛒</span>'">`:`<span class="th">${emo(p.cat)}</span>`;
+    const th=p.img?`<img src="${esc(p.img)}" alt="" referrerpolicy="no-referrer" onerror="this.outerHTML='<span class=th>🛒</span>'">`:`<span class="th">${emo(p.cat)}</span>`;
     return `<div class="it${off?" off":""}">${th}<div class="n">${esc(p.name)}<br><small>${off?"Ya no está disponible":`${esc(p.brand||"")}${best?` · mejor: ${esc(best.s)} ${fmt(best.price)}`:""}`}</small></div><div class="step"><button data-m="${esc(k)}" aria-label="Quitar uno">−</button><b>${n}</b><button data-p="${esc(k)}" aria-label="Agregar uno">+</button></div></div>`}).join("");
   $("#items").innerHTML=lines+`<button class="clear" id="clr">Vaciar lista</button>`;
   if(!stores.length||pending.length&&!live.length){$("#sum").innerHTML="";return}

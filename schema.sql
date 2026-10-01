@@ -103,13 +103,13 @@ alter table public.store_products
   add column if not exists unit_price numeric(12,2),
   add column if not exists unit_label text;
 
-create unique index if not exists products_match_key_uq on public.products (match_key);
+create unique index if not exists products_match_key_key on public.products (match_key);
 create index if not exists products_name_key_idx on public.products (name_key);
 create index if not exists products_category_idx on public.products (category);
 create index if not exists products_search_trgm on public.products using gin (search_text extensions.gin_trgm_ops);
 create index if not exists products_brand_trgm on public.products using gin (brand extensions.gin_trgm_ops);
 create index if not exists sp_store_stock_idx on public.store_products (supermarket_id, in_stock);
-create index if not exists sp_match_key_idx on public.store_products (match_key) where product_id is null;
+create index if not exists store_products_match_key_idx on public.store_products (match_key);
 create index if not exists sp_offer_idx on public.store_products (product_id) where is_offer and in_stock;
 
 -- Rellena el texto de búsqueda de productos que ya existían (demo)

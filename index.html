@@ -2,7 +2,7 @@
 <html lang="es">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <meta name="theme-color" content="#0F3D2E">
 <title>ChangoApp · Compara supermercados y ahorra</title>
 <meta name="description" content="Compara precios de supermercados chilenos, arma tu lista y descubre dónde sale más barato.">
@@ -22,6 +22,10 @@
 :root[data-theme="dark"]{--bg:#0B1410;--ink:#EAF1E7;--mute:#9AAAA1;--card:#14211A;--line:#24372C;--hero:#0A2A1F;--hero2:#0F3A2B;--soft:#1B2D23;--sh:0 1px 2px rgba(0,0,0,.3);--tl:24%}
 html{scroll-padding-top:env(safe-area-inset-top,0px);-webkit-text-size-adjust:100%}
 *,*::before,*::after{box-sizing:border-box}
+html{touch-action:manipulation;-webkit-tap-highlight-color:transparent}
+body{-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
+input,textarea{-webkit-user-select:text;user-select:text}
+img,a{-webkit-user-drag:none;-webkit-touch-callout:none}
 body{margin:0;background:var(--bg);color:var(--ink);font:400 16px/1.45 "DM Sans",system-ui,sans-serif}
 button,input,select{font:inherit;color:inherit}
 button{cursor:pointer}
@@ -311,6 +315,7 @@ let tm;$("#q").addEventListener("input",e=>{st.q=e.target.value;clearTimeout(tm)
 const th=store("chango.theme");if(th)document.documentElement.dataset.theme=th;
 fetchPage(true);loadFacets();loadCart();
 if("serviceWorker"in navigator)addEventListener("load",()=>navigator.serviceWorker.register("sw.js").catch(()=>{}));
+if(matchMedia("(pointer:coarse)").matches)addEventListener("contextmenu",e=>{if(!e.target.closest("input,textarea"))e.preventDefault()});
 </script>
 </body>
 </html>

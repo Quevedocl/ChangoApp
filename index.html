@@ -6,7 +6,14 @@
 <meta name="theme-color" content="#0F3D2E">
 <title>ChangoApp · Compara supermercados y ahorra</title>
 <meta name="description" content="Compara precios de supermercados chilenos, arma tu lista y descubre dónde sale más barato.">
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='28' fill='%230F3D2E'/%3E%3Ctext x='50' y='68' font-size='56' text-anchor='middle'%3E🛒%3C/text%3E%3C/svg%3E">
+<link rel="icon" type="image/svg+xml" href="icons/icon.svg">
+<link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="ChangoApp">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@600;800&family=DM+Sans:wght@400;500;700&display=swap">
 <style>
 :root{box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);
@@ -25,8 +32,8 @@ svg{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:2;stroke-l
 .top{position:sticky;top:env(safe-area-inset-top,0px);z-index:4;background:var(--hero);color:#F2F8EC;box-shadow:0 2px 20px rgba(0,0,0,.18)}
 .bar{max-width:1120px;margin:auto;display:flex;align-items:center;gap:12px;padding:10px 16px}
 .logo{display:flex;align-items:center;gap:8px;font:800 1.25rem "Bricolage Grotesque",sans-serif;letter-spacing:-.02em;white-space:nowrap}
-.logo i{display:grid;place-items:center;width:34px;height:34px;border-radius:11px;background:var(--lime);color:var(--limeink);font-style:normal}
-.logo i svg{width:19px;height:19px}
+.logo i{display:grid;place-items:center;font-style:normal}
+.logo i img{display:block;height:35px;width:auto}
 .search{flex:1;display:flex;align-items:center;gap:8px;background:#fff;color:#10241B;border-radius:999px;padding:3px 14px;min-width:0}
 .search input{flex:1;border:0;background:none;padding:10px 0;min-width:0;color:#10241B}
 .search input:focus-visible{outline:0}
@@ -129,7 +136,7 @@ h3{font-size:1.02rem;font-weight:600;line-height:1.22;display:-webkit-box;-webki
 <body>
 <div id="app">
 <header class="top"><div class="bar">
-  <div class="logo"><i><svg viewBox="0 0 24 24"><circle cx="9" cy="20" r="1.5"/><circle cx="18" cy="20" r="1.5"/><path d="M2 3h3l2.6 12.2a2 2 0 0 0 2 1.6h7.7a2 2 0 0 0 2-1.5L21 8H6"/></svg></i><span>ChangoApp</span></div>
+  <div class="logo"><i><img src="icons/mark.svg" alt="" width="40" height="35"></i><span>ChangoApp</span></div>
   <label class="search"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg><input id="q" type="search" placeholder="Busca arroz, aceite, una marca…" aria-label="Buscar producto" autocomplete="off"></label>
   <button class="ib" id="th" aria-label="Cambiar tema claro u oscuro"><svg viewBox="0 0 24 24"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg></button>
   <button class="ib" id="cb" aria-label="Abrir mi lista"><svg viewBox="0 0 24 24"><path d="M9 6h11M9 12h11M9 18h11"/><path d="m3.5 6 1 1 2-2M3.5 12l1 1 2-2M3.5 18l1 1 2-2"/></svg><span class="n" id="cn" hidden>0</span></button>
@@ -303,6 +310,7 @@ $("#so").addEventListener("change",e=>{st.sort=e.target.value;fetchPage(true)});
 let tm;$("#q").addEventListener("input",e=>{st.q=e.target.value;clearTimeout(tm);tm=setTimeout(()=>fetchPage(true),300)});
 const th=store("chango.theme");if(th)document.documentElement.dataset.theme=th;
 fetchPage(true);loadFacets();loadCart();
+if("serviceWorker"in navigator)addEventListener("load",()=>navigator.serviceWorker.register("sw.js").catch(()=>{}));
 </script>
 </body>
 </html>

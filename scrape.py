@@ -219,7 +219,7 @@ def tokens(s):
 
 def parse_size(name):
     """Devuelve {'kind': g|ml|un, 'per': cantidad por envase, 'pack': n, 'total': total} o None."""
-    best = None
+    best, measure, count = None, None, None
     for m in SIZE_RE.finditer(name or ""):
         pack = int(m.group(1) or 1)
         kind, mult = UNITS[m.group(3).lower()]
@@ -228,9 +228,18 @@ def parse_size(name):
             continue
         cand = {"kind": kind, "per": per, "pack": pack, "total": per * pack}
         if kind != "un":
-            return cand                      # prioriza peso/volumen sobre "unidades"
-        if best is None:
-            best = cand
+            if measure is None:
+                measure = cand               # prioriza peso/volumen sobre "unidades"
+        else:
+            if best is None:
+                best = cand
+            if count is None and pack == 1 and per == int(per) and 2 <= per <= 200:
+                count = int(per)             # "Pack 6 un." junto a "80 ml" = 6 envases de 80 ml
+    if measure:
+        if measure["pack"] == 1 and count:
+            measure["pack"] = count
+            measure["total"] = measure["per"] * count
+        return measure
     return best
 
 
@@ -894,7 +903,13 @@ def save(slug, rows):
             (sb.table("store_products").update({"in_stock": False})
              .eq("supermarket_id", sid).in_("external_id", gone[i:i + 200]).execute())
 
-    sb.rpc("link_products").execute()
+    for intento in range(3):                 # el enlace puede tardar con muchos productos
+        try:
+            sb.rpc("link_products").execute()
+            break
+        except Exception as e:
+            print(f"link_products falló (intento {intento + 1}/3): {e}", flush=True)
+            time.sleep(20)
     print(f"{cfg['name']}: {len(rows)} productos, {len(hist)} cambios de precio, "
           f"{0 if suspicious else len(gone)} marcados sin stock", flush=True)
     return not suspicious

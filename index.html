@@ -227,7 +227,7 @@ function renderFacets(){
   $("#brands").innerHTML=bs.map(b=>`<button class="chip brand${st.q.toLowerCase()===b.b.toLowerCase()?" on":""}" data-b="${esc(b.b)}">${esc(b.b)}</button>`).join("");
 }
 function card(p){
-  const rows=[...p.rows].sort((a,b)=>a.price-b.price),lo=rows[0].price,hi=rows[rows.length-1].price,cmp=rows.length>1&&lo!==hi;
+  const best={};p.rows.forEach(r=>{if(!best[r.s]||r.price<best[r.s].price)best[r.s]=r});const rows=Object.values(best).sort((a,b)=>a.price-b.price),lo=rows[0].price,hi=rows[rows.length-1].price,cmp=rows.length>1&&lo!==hi;
   const html=rows.map(r=>{const w=cmp&&r.price===lo,nm=r.url?`<a href="${esc(r.url)}" target="_blank" rel="noopener">${esc(r.s)}</a>`:esc(r.s);
     return `<div class="pr${w?" win":""}"><i style="background:${color(r.s)}"></i><span class="s">${nm}${r.u?`<small>${fmt(r.u)} / ${esc(r.ul)}</small>`:""}</span><span class="pp">${r.offer?`<s>${fmt(r.orig)}</s>`:""}<b>${fmt(r.price)}</b></span></div>`}).join("");
   const at=rows.map(r=>r.at).filter(Boolean).sort().pop();
